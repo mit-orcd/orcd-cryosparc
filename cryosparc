@@ -1,0 +1,98 @@
+#!/bin/bash
+
+# TODO: Add some checks for proper configuration, e.g. that CryoSPARC is installed and the workdir and licenses are set
+# TODO: Check if other people can connect to your cryosparc instance
+# TODO: Write this so that it works in command line only as well
+# TODO: Not always choosing the right node when it tries to connect
+
+display() {
+    kill $LOADING_PID 2>/dev/null
+    if [[ -z "$DISPLAY" ]]; then
+        echo "$1"
+    elif command -v zenity >/dev/null 2>&1; then
+        zenity --info --text="$1" --no-wrap &
+    else
+        echo "$1"
+    fi
+    LOADING_PID=$!
+}
+
+# Check that CRYOSPARC_WORKDIR is set
+if [[ -z "$CRYOSPARC_WORKDIR" ]]; then
+    display "Error: CRYOSPARC_WORKDIR environment variable is not set. Please set it to your CryoSPARC installation directory and try again."
+    exit 1
+fi
+
+# Get initial modification time of config file
+CONFIG_FILE="$CRYOSPARC_WORKDIR/cryosparc_master/config.sh"
+INITIAL_CONFIG_MTIME=$(stat -c %Y "$CONFIG_FILE" 2>/dev/null || echo 0)
+
+# Try to source config if already running
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+    if squeue -h -o "%N %T" -u $USER | grep -q "$CRYOSPARC_MASTER_HOSTNAME RUNNING"; then
+        # Connect to existing instance if it exists:
+        if nc -z $CRYOSPARC_MASTER_HOSTNAME $CRYOSPARC_BASE_PORT 2>/dev/null; then
+            display "CryoSPARC is already running on ${CRYOSPARC_MASTER_HOSTNAME}:${CRYOSPARC_BASE_PORT}. Opening in web browser..."
+            xdg-open http://${CRYOSPARC_MASTER_HOSTNAME}.inband:${CRYOSPARC_BASE_PORT}
+            exit 0
+        fi
+    fi
+else
+    display "Error: config.sh file not found."
+    exit 1
+fi
+
+SLURM_ACCOUNTS=$(sacctmgr -n -P show user $USER withassoc format=Account 2>/dev/null)
+if echo "$SLURM_ACCOUNTS" | grep -qx "mit_amf_advanced_cpu"; then
+    EXTRA_SBATCH_ARGS="--account=mit_amf_advanced_cpu --qos=mit_amf_advanced_cpu"
+elif echo "$SLURM_ACCOUNTS" | grep -qx "mit_amf_standard_cpu"; then
+    EXTRA_SBATCH_ARGS="--account=mit_amf_standard_cpu --qos=mit_amf_standard_cpu"
+else
+    EXTRA_SBATCH_ARGS=""
+fi
+
+mkdir -p $CRYOSPARC_WORKDIR/xfce_setup/output
+JOB_ID=$(sbatch -o ${CRYOSPARC_WORKDIR}/xfce_setup/output/cryosparc_master-%N-%j.out --parsable \
+    --partition="${CRYOSPARC_MASTER_PARTITION:-mit_normal}" \
+    $EXTRA_SBATCH_ARGS \
+    $CRYOSPARC_WORKDIR/xfce_setup/run_cryosparc.sbatch)
+# Wait until job starts:
+display "Waiting for CryoSPARC to start (job $JOB_ID)..."
+while true; do
+    JOB_STATE=$(squeue -j $JOB_ID -h -o "%T")
+    if [[ "$JOB_STATE" == "RUNNING" ]]; then
+        break
+    elif [[ -z "$JOB_STATE" ]]; then
+        display "Job $JOB_ID not found. Exiting."
+        exit 1
+    fi
+    sleep 5
+done
+
+# Wait for the config file to be updated (mtime changes)
+while true; do
+    CURRENT_CONFIG_MTIME=$(stat -c %Y "$CONFIG_FILE" 2>/dev/null || echo 0)
+    if [[ $CURRENT_CONFIG_MTIME -gt $INITIAL_CONFIG_MTIME ]]; then
+        break
+    fi
+    sleep 1
+done
+source "$CONFIG_FILE"
+
+# Wait for cryosparc to start running on the port
+TIMEOUT_SECS=300
+deadline=$((SECONDS + TIMEOUT_SECS))
+display "Starting CryoSPARC on ${CRYOSPARC_MASTER_HOSTNAME}:${CRYOSPARC_BASE_PORT}..."
+until nc -z $CRYOSPARC_MASTER_HOSTNAME $CRYOSPARC_BASE_PORT 2>/dev/null; do
+    if (( SECONDS > deadline )); then
+        display "Timed out waiting for port $CRYOSPARC_BASE_PORT on $CRYOSPARC_MASTER_HOSTNAME to listen"
+        exit 1
+    fi
+    sleep 5
+done
+
+kill $LOADING_PID 2>/dev/null
+
+# Open CryoSPARC in web browser:
+xdg-open http://${CRYOSPARC_MASTER_HOSTNAME}.inband:${CRYOSPARC_BASE_PORT}
