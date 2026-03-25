@@ -31,15 +31,15 @@ fi
 # Download CryoSPARC software:
 cd "$CRYOSPARC_WORKDIR"
 echo "Downloading CryoSPARC master software..."
-# curl -L https://get.cryosparc.com/download/master-latest/$CRYOSPARC_LICENSE_ID -o cryosparc_master.tar.gz
+curl -L https://get.cryosparc.com/download/master-latest/$CRYOSPARC_LICENSE_ID -o cryosparc_master.tar.gz
 echo "Extracting CryoSPARC master software..."
 tar -xf cryosparc_master.tar.gz cryosparc_master
-# rm cryosparc_master.tar.gz
+rm cryosparc_master.tar.gz
 echo "Downloading CryoSPARC worker software..."
-# curl -L https://get.cryosparc.com/download/worker-latest/$CRYOSPARC_LICENSE_ID -o cryosparc_worker.tar.gz
+curl -L https://get.cryosparc.com/download/worker-latest/$CRYOSPARC_LICENSE_ID -o cryosparc_worker.tar.gz
 echo "Extracting CryoSPARC worker software..."
 tar -xf cryosparc_worker.tar.gz cryosparc_worker
-# rm cryosparc_worker.tar.gz
+rm cryosparc_worker.tar.gz
 
 # Install CryoSPARC master:
 cd cryosparc_master

@@ -1,4 +1,4 @@
-# CryoSPARC workflow for Engaging
+# CryoSPARC Workflow for Engaging
 
 <!-- 
 TODO:
