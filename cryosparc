@@ -1,18 +1,16 @@
 #!/bin/bash
 
-# TODO: Add some checks for proper configuration, e.g. that CryoSPARC is installed and the workdir and licenses are set
 # TODO: Check if other people can connect to your cryosparc instance
 # TODO: Write this so that it works in command line only as well
-# TODO: Not always choosing the right node when it tries to connect
 
 display() {
     kill $LOADING_PID 2>/dev/null
     if [[ -z "$DISPLAY" ]]; then
-        echo "$1"
+        echo "$1" &
     elif command -v zenity >/dev/null 2>&1; then
         zenity --info --text="$1" --no-wrap &
     else
-        echo "$1"
+        echo "$1" &
     fi
     LOADING_PID=$!
 }
@@ -39,24 +37,26 @@ if [ -f "$CONFIG_FILE" ]; then
         fi
     fi
 else
-    display "Error: config.sh file not found."
+    display "Error: config.sh file not found. Is CryoSPARC installed correctly in $CRYOSPARC_WORKDIR?"
     exit 1
 fi
 
-SLURM_ACCOUNTS=$(sacctmgr -n -P show user $USER withassoc format=Account 2>/dev/null)
-if echo "$SLURM_ACCOUNTS" | grep -qx "mit_amf_advanced_cpu"; then
-    EXTRA_SBATCH_ARGS="--account=mit_amf_advanced_cpu --qos=mit_amf_advanced_cpu"
-elif echo "$SLURM_ACCOUNTS" | grep -qx "mit_amf_standard_cpu"; then
-    EXTRA_SBATCH_ARGS="--account=mit_amf_standard_cpu --qos=mit_amf_standard_cpu"
-else
-    EXTRA_SBATCH_ARGS=""
+MASTER_PARTITION="${CRYOSPARC_MASTER_PARTITION:-mit_normal}"
+EXTRA_SBATCH_ARGS=""
+if [[ "$MASTER_PARTITION" == "mit_normal" ]]; then
+    SLURM_ACCOUNTS=$(sacctmgr -n -P show user $USER withassoc format=Account 2>/dev/null)
+    if echo "$SLURM_ACCOUNTS" | grep -qx "mit_amf_advanced_cpu"; then
+        EXTRA_SBATCH_ARGS="--account=mit_amf_advanced_cpu --qos=mit_amf_advanced_cpu"
+    elif echo "$SLURM_ACCOUNTS" | grep -qx "mit_amf_standard_cpu"; then
+        EXTRA_SBATCH_ARGS="--account=mit_amf_standard_cpu --qos=mit_amf_standard_cpu"
+    fi
 fi
 
-mkdir -p $CRYOSPARC_WORKDIR/xfce_setup/output
-JOB_ID=$(sbatch -o ${CRYOSPARC_WORKDIR}/xfce_setup/output/cryosparc_master-%N-%j.out --parsable \
-    --partition="${CRYOSPARC_MASTER_PARTITION:-mit_normal}" \
+mkdir -p "$CRYOSPARC_WORKDIR/output"
+JOB_ID=$(sbatch -o "$CRYOSPARC_WORKDIR/output/cryosparc_master-%N-%j.out" --parsable \
+    --partition="$MASTER_PARTITION" \
     $EXTRA_SBATCH_ARGS \
-    $CRYOSPARC_WORKDIR/xfce_setup/run_cryosparc.sbatch)
+    "$CRYOSPARC_WORKDIR/start_cryosparc_master.sbatch")
 # Wait until job starts:
 display "Waiting for CryoSPARC to start (job $JOB_ID)..."
 while true; do

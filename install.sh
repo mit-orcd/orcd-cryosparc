@@ -16,8 +16,7 @@ fi
 
 # Check if CRYOSPARC_LICENSE_ID is set:
 if [ -z "$CRYOSPARC_LICENSE_ID" ]; then
-    echo "Error: CRYOSPARC_LICENSE_ID environment variable is not set."
-    echo "Please set it to your CryoSPARC license ID and try again."
+    echo "Error: CRYOSPARC_LICENSE_ID environment variable is not set. Please set it to your CryoSPARC license ID and try again."
     exit 1
 fi
 
@@ -30,14 +29,14 @@ else
 fi
 
 # Download CryoSPARC software:
-cd $CRYOSPARC_WORKDIR
+cd "$CRYOSPARC_WORKDIR"
 echo "Downloading CryoSPARC master software..."
-curl -L https://get.cryosparc.com/download/master-latest/$CRYOSPARC_LICENSE_ID -o cryosparc_master.tar.gz
+# curl -L https://get.cryosparc.com/download/master-latest/$CRYOSPARC_LICENSE_ID -o cryosparc_master.tar.gz
 echo "Extracting CryoSPARC master software..."
 tar -xf cryosparc_master.tar.gz cryosparc_master
 # rm cryosparc_master.tar.gz
 echo "Downloading CryoSPARC worker software..."
-curl -L https://get.cryosparc.com/download/worker-latest/$CRYOSPARC_LICENSE_ID -o cryosparc_worker.tar.gz
+# curl -L https://get.cryosparc.com/download/worker-latest/$CRYOSPARC_LICENSE_ID -o cryosparc_worker.tar.gz
 echo "Extracting CryoSPARC worker software..."
 tar -xf cryosparc_worker.tar.gz cryosparc_worker
 # rm cryosparc_worker.tar.gz
@@ -100,29 +99,20 @@ cryosparcm user create --email "${USER}@mit.edu" \
 # Helper to set up a single lane directory:
 setup_lane() {
     local lane="$1"
-    mkdir "lanes/$lane"
-    cp $SCRIPT_DIR/templates/cluster_script.sh "lanes/$lane/cluster_script.sh"
-    cp $SCRIPT_DIR/templates/cluster_info.json "lanes/$lane/cluster_info.json"
-    sed -i "s/#SBATCH -p .*/#SBATCH -p $lane/" "lanes/$lane/cluster_script.sh"
-    sed -i "s|\"name\": \"\"|\"name\": \"$lane\"|" "lanes/$lane/cluster_info.json"
-    sed -i "s|\"worker_bin_path\": \"\"|\"worker_bin_path\": \"$CRYOSPARC_WORKDIR/cryosparc_worker/bin/cryosparcw\"|" "lanes/$lane/cluster_info.json"
-    cd "lanes/$lane"
-    cryosparcm cluster connect
-    cd ../..
-}
-
-# Set up default lanes:
-mkdir lanes
-lanes=("mit_normal" "mit_normal_gpu" "mit_preemptable")
-for lane in "${lanes[@]}"; do
-    setup_lane "$lane"
+    local lane_dir="$CRYOSPARC_WORKDIR/cryosparc_master/lanes/$lane"
+    mkdir -p $lane_dir
+    cp "$SCRIPT_DIR/templates/cluster_script.sh" "$lane_dir/cluster_script.sh"
+    cp "$SCRIPT_DIR/templates/cluster_info.json" "$lane_dir/cluster_info.json"
+    sed -i "s/#SBATCH -p .*/#SBATCH -p $lane/" "$lane_dir/cluster_script.sh"
+    sed -i "s|\"name\": \"\"|\"name\": \"$lane\"|" "$lane_dir/cluster_info.json"
+    sed -i "s|\"worker_bin_path\": \"\"|\"worker_bin_path\": \"$CRYOSPARC_WORKDIR/cryosparc_worker/bin/cryosparcw\"|" "$lane_dir/cluster_info.json"
     if [ -n "$ADVANCED_ACCOUNT" ]; then
         if [ "$lane" = "mit_normal" ]; then
             ACCT="mit_amf_${ADVANCED_ACCOUNT}_cpu"
-            sed -i "/#SBATCH -p $lane/a #SBATCH --qos=$ACCT\n#SBATCH --account=$ACCT" "lanes/$lane/cluster_script.sh"
+            sed -i "/#SBATCH -p $lane/a #SBATCH --qos=$ACCT\n#SBATCH --account=$ACCT" "$lane_dir/cluster_script.sh"
         elif [ "$lane" = "mit_normal_gpu" ]; then
             ACCT="mit_amf_${ADVANCED_ACCOUNT}_gpu"
-            sed -i "/#SBATCH -p $lane/a #SBATCH --qos=$ACCT\n#SBATCH --account=$ACCT" "lanes/$lane/cluster_script.sh"
+            sed -i "/#SBATCH -p $lane/a #SBATCH --qos=$ACCT\n#SBATCH --account=$ACCT" "$lane_dir/cluster_script.sh"
         fi
     fi
     if [ "$lane" = "mit_normal_gpu" ]; then
@@ -133,8 +123,18 @@ for lane in "${lanes[@]}"; do
         else
             GPU_TIME="6:00:00"
         fi
-        sed -i "/#SBATCH -p $lane/a #SBATCH --time=$GPU_TIME" "lanes/$lane/cluster_script.sh"
+        sed -i "/#SBATCH -p $lane/a #SBATCH --time=$GPU_TIME" "$lane_dir/cluster_script.sh"
     fi
+    cd "$lane_dir"
+    cryosparcm cluster connect
+    cd ../..
+}
+
+# Set up default lanes:
+mkdir -p $CRYOSPARC_WORKDIR/cryosparc_master/lanes
+lanes=("mit_normal" "mit_normal_gpu" "mit_preemptable")
+for lane in "${lanes[@]}"; do
+    setup_lane "$lane"
 done
 
 # Prompt for additional partitions:
